@@ -1,0 +1,135 @@
+#!/bin/zsh
+
+# 設定ファイル トークン，パス変数を管理
+FilePath_Config="$HOME/bin/notify_program_end/config.sh"
+
+# 設定ファイル確認処理
+if [ ! -f "${FilePath_Config}" ]; then
+    echo "Error : file not found.\n"${FilePath_Config}""
+    exit 1
+fi
+source "${FilePath_Config}"
+
+# ヘルプ文の出力関数
+print_help()
+{
+    cat <<-EOF 
+	Usage:
+	    notice [OPTIONS] <program> <channel>
+	    notice -h
+    
+	Description:
+	    Run the <program> by this command in background.
+	    Post messages to <channel> on slack after they finish.
+	    If you use [-m <user>], you mention <user> on post message.
+        If you use [-s], the <program> run in screen session.
+    
+	Options:
+	    -m <user>   Mention <user> in post message
+	    -s          Run <program> in screen session
+	    -h          Show help message
+	EOF
+}
+
+# オプション処理
+option_m_flag=0                 # オプション m の有無判定用変数
+User_ID=""                      # オプション m 用変数 デフォルトは空
+
+option_screen_flag=0                 # オプション screen の有無判定用変数
+while getopts "m:sh" opt; do
+    case $opt in
+        m)
+          User="${OPTARG}"        # 終了通知のメンションユーザー名
+          option_m_flag=1
+          ;;
+        s)
+          option_screen_flag=1
+          ;;
+        h)
+          print_help
+          exit 0
+          ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+# 引数処理
+Exe_Program=$1                  # 本ソースコード内で実行するプログラム
+Channel=$2                      # 通知先のslackチャンネル名
+
+# 引数指定エラー処理
+if [ -z "${Exe_Program}" ] || [ -z "${Channel}" ] ; then
+    echo "Error : please follow the usage."
+    print_help
+    exit 1
+fi
+
+# オプション m ありの処理: ユーザー名からユーザーID取得
+if [ "${option_m_flag}" -eq 1 ] ; then
+    if [ ! -f "${FilePath_User_Inf_InsDir}" ] ; then
+        echo "Error : file not found.\n${$FilePath_User_Inf_InsDir}"
+        exit 1
+    else
+        User_ID=$(cat "${FilePath_User_Inf_InsDir}" | jq -r --arg name "${User}" '.[] | select(.name == $name) | .id')
+        if [ -z "${User_ID}" ]; then
+            echo "Error: mention's user not found.\n${User}"
+            exit 1
+        fi
+    fi    
+fi
+
+# 通知先のslackチャンネルの処理: チャンネル名からチャンネルID取得
+if [ ! -f "${FilePath_Channel_Inf_InsDir}" ] ; then
+    echo "Error : file not found.\n${FilePath_Channel_Inf_InsDir}"
+    exit 1
+else
+    Channel_ID=$(cat "${FilePath_Channel_Inf_InsDir}" | jq -r --arg name "${Channel}" '.[] | select(.name == $name) | .id')
+    if [ -z "${Channel_ID}" ]; then
+        echo "Error: channel not found.\n${Channel}"
+        exit 1
+    fi
+
+    # 
+    if [ ! -f "./${Exe_Program}" ] ; then
+        echo "Error : program not found in current directory.\n${Exe_Program}"
+        exit 1
+    fi
+fi
+
+# 本コマンド実行前 確認メッセージ
+echo "Program : ${Exe_Program}"
+echo "POST Channel : ${Channel}"
+if [ "${option_m_flag}" -eq 1 ] ; then
+    echo "POST Mention : ${User}"
+fi
+echo "\ntry? [y/n]:"
+
+# 入力処理
+while true; do
+    read -k 1 Result
+    case "${Result}" in
+        y)
+          echo "\n:start.\n:when the program ends, messages will come."
+          break
+          ;;
+        n)
+          echo "\n:cancel command."
+          exit 0
+          ;;
+        *)
+          echo "\n:again. y or n"
+          ;;
+    esac
+done
+
+# 
+if [ "${option_screen_flag}" -eq 0 ] ; then
+    # 処理プログラム実行 process_notice.sh バックグラウンド実行
+    "${FilePath_Process_Notice}" "${TOKEN}" "${Exe_Program}" "${Channel_ID}" "${User_ID}" "${FilePath_Error_Log}" 2> "${FilePath_Error_Log}" &
+else
+    # 処理プログラム実行 process_notice.sh screenセッション実行
+    screen -dm zsh -c 'exec "$0" "$@" 2> "$5"' "${FilePath_Process_Notice}" "${TOKEN}" "${Exe_Program}" "${Channel_ID}" "${User_ID}" "${FilePath_Error_Log}"
+    # "${FilePath_Error_Log}" は 上記実行のエラーログ，"${FilePath_Process_Notice}"内部でのエラーログ の二役
+fi
+
+exit 0
