@@ -57,6 +57,6 @@ ln -snf "${Install_Directory}/notify_program_end/${File_Command}" "${Install_Dir
 
 # 設定ファイルへの記述案内
 echo "add the following scripts to ~/.zshenv."
-echo "export PATH="${Install_Directory/#$HOME/~}":\$PATH"
+echo "export PATH=${Install_Directory/#$HOME/~}:\$PATH"
 echo "done"
 exit 0
